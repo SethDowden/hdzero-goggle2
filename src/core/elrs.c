@@ -29,6 +29,7 @@
 #include "driver/dm5680.h"
 #include "driver/hardware.h"
 #include "driver/rtc.h"
+#include "driver/rtc6715.h"
 #include "driver/uart.h"
 #include "ui/page_common.h"
 #include "ui/page_scannow.h"
@@ -241,6 +242,34 @@ uint8_t hdz_index2ch(uint8_t index) {
     return chan;
 }
 
+// Backpack channels are zero-based; the analog setting is one-based.
+static void elrs_set_analog_channel(uint8_t chan) {
+    if (chan >= ANALOG_CHANNEL_NUM)
+        return;
+
+    // Serialize the state check and retune with manual tuning/source changes.
+    pthread_mutex_lock(&lvgl_mutex);
+    if (GOGGLE_VER_2 && g_source_info.source == SOURCE_ANALOG &&
+        g_setting.source.analog_module == SETTING_SOURCES_ANALOG_MODULE_INTERNAL) {
+        // Source_AV() sets these hardware fields after configuring analog video.
+        // The selected source alone can still refer to analog while in a menu.
+        bool initialized = g_init_done == 1 && g_app_state == APP_STATE_VIDEO &&
+                           g_hw_stat.source_mode == SOURCE_MODE_AV && g_hw_stat.av_chid == 1;
+        if (g_setting.source.analog_channel != chan + 1 || !initialized) {
+            g_setting.source.analog_channel = chan + 1;
+            if (initialized) {
+                // Keep the video pipeline and DVR running during a live retune.
+                RTC6715_SetCH(chan);
+            } else {
+                dvr_cmd(DVR_STOP);
+                app_switch_to_analog();
+                app_state_push(APP_STATE_VIDEO);
+            }
+        }
+    }
+    pthread_mutex_unlock(&lvgl_mutex);
+}
+
 void msp_process_packet() {
     if (packet.type == MSP_PACKET_COMMAND) {
         switch (packet.function) {
@@ -249,37 +278,27 @@ void msp_process_packet() {
             if (g_source_info.source == SOURCE_HDZERO) {
                 chan = hdz_ch2index(g_setting.source.hdzero_band, g_setting.scan.channel);
             } else if (g_source_info.source == SOURCE_ANALOG && g_setting.source.analog_module == SETTING_SOURCES_ANALOG_MODULE_INTERNAL) {
-                chan = g_setting.scan.channel;
+                chan = g_setting.source.analog_channel - 1;
             }
             msp_send_packet(MSP_GET_BAND_CHAN, MSP_PACKET_RESPONSE, 1, &chan);
         } break;
         case MSP_SET_BAND_CHAN: {
+            if (packet.payload_size < 1)
+                break;
             uint8_t ch, chan = packet.payload[0];
             if (g_source_info.source == SOURCE_HDZERO) {
                 chan = hdz_index2ch(chan);
                 ch = g_setting.scan.channel & 0xF;
                 if (chan != 0 && (chan != ch || g_app_state != APP_STATE_VIDEO)) {
                     g_setting.scan.channel = chan;
-                    beep();
                     pthread_mutex_lock(&lvgl_mutex);
                     dvr_cmd(DVR_STOP);
                     app_switch_to_hdzero(true);
                     app_state_push(APP_STATE_VIDEO);
                     pthread_mutex_unlock(&lvgl_mutex);
                 }
-            } else if (GOGGLE_VER_2) {
-                if (g_source_info.source == SOURCE_ANALOG && g_setting.source.analog_module == SETTING_SOURCES_ANALOG_MODULE_INTERNAL) {
-                    ch = g_setting.source.analog_channel - 1;
-                    if (chan != ch || g_app_state != APP_STATE_VIDEO) {
-                        g_setting.source.analog_channel = chan + 1;
-                        beep();
-                        pthread_mutex_lock(&lvgl_mutex);
-                        dvr_cmd(DVR_STOP);
-                        app_switch_to_analog();
-                        app_state_push(APP_STATE_VIDEO);
-                        pthread_mutex_unlock(&lvgl_mutex);
-                    }
-                }
+            } else {
+                elrs_set_analog_channel(chan);
             }
         } break;
         case MSP_GET_FREQ: {
@@ -293,7 +312,7 @@ void msp_process_packet() {
                 buf[1] = freq >> 8;
             } else if (GOGGLE_VER_2) {
                 if (g_source_info.source == SOURCE_ANALOG && g_setting.source.analog_module == SETTING_SOURCES_ANALOG_MODULE_INTERNAL) {
-                    ch = g_setting.scan.channel;
+                    ch = g_setting.source.analog_channel;
                     freq = freq_table[ch - 1];
                     buf[0] = freq & 0xff;
                     buf[1] = freq >> 8;
@@ -302,6 +321,8 @@ void msp_process_packet() {
             msp_send_packet(MSP_GET_FREQ, MSP_PACKET_RESPONSE, sizeof(buf), buf);
         } break;
         case MSP_SET_FREQ: {
+            if (packet.payload_size < 2)
+                break;
             uint16_t freq = packet.payload[0] | (uint16_t)packet.payload[1] << 8;
             uint8_t ch;
             if (g_source_info.source == SOURCE_HDZERO) {
@@ -310,7 +331,6 @@ void msp_process_packet() {
                     int chan = i + 1;
                     if (freq == freq_table[hdz_index2ch(i)] && (ch != chan || g_app_state != APP_STATE_VIDEO) && chan > 0 && chan < (BASE_CH_NUM + 1)) {
                         g_setting.scan.channel = chan;
-                        beep();
                         pthread_mutex_lock(&lvgl_mutex);
                         app_switch_to_hdzero(true);
                         app_state_push(APP_STATE_VIDEO);
@@ -320,16 +340,9 @@ void msp_process_packet() {
                 }
             } else if (GOGGLE_VER_2) {
                 if (g_source_info.source == SOURCE_ANALOG && g_setting.source.analog_module == SETTING_SOURCES_ANALOG_MODULE_INTERNAL) {
-                    ch = g_setting.scan.channel;
                     for (int i = 0; i < ANALOG_CHANNEL_NUM; i++) {
-                        int chan = i + 1;
-                        if (freq == freq_table[i] && (ch != chan || g_app_state != APP_STATE_VIDEO)) {
-                            g_setting.scan.channel = chan;
-                            beep();
-                            pthread_mutex_lock(&lvgl_mutex);
-                            app_switch_to_analog();
-                            app_state_push(APP_STATE_VIDEO);
-                            pthread_mutex_unlock(&lvgl_mutex);
+                        if (freq == freq_table[i]) {
+                            elrs_set_analog_channel(i);
                             break;
                         }
                     }
