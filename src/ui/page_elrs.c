@@ -122,6 +122,8 @@ static lv_obj_t *page_elrs_create(lv_obj_t *parent, panel_arr_t *arr) {
     lv_obj_set_layout(cont, LV_LAYOUT_GRID);
     lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_style(cont, &style_context, LV_PART_MAIN);
+    lv_obj_set_style_pad_column(cont, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(cont, 0, LV_PART_MAIN);
 
     lv_obj_set_style_grid_column_dsc_array(cont, col_dsc, 0);
     lv_obj_set_style_grid_row_dsc_array(cont, row_dsc, 0);

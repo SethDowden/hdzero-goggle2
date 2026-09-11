@@ -181,6 +181,12 @@ static void test_delayed_retune(const uint16_t *frequencies) {
                 bool changed = target != 32;
                 send_command(function, value, len);
                 delayed_live(33, 0, changed);
+                elrs_analog_hold_t hold;
+                assert(elrs_get_analog_hold(&hold) == changed);
+                if (changed) {
+                    assert(hold.active_channel == 32 && hold.target_channel == target);
+                    assert(hold.remaining_ms == duration);
+                }
                 if (changed)
                     assert(last_beep_ms == 10000);
                 const int retries[] = {1, duration / 5, duration / 4, duration / 2, duration * 3 / 4, duration - 1};
@@ -188,6 +194,9 @@ static void test_delayed_retune(const uint16_t *frequencies) {
                     poll_at(10000 + retries[r]);
                     send_command(function, value, len);
                     delayed_live(33, 0, changed);
+                    assert(elrs_get_analog_hold(&hold) == changed);
+                    if (changed)
+                        assert(hold.remaining_ms == duration - retries[r]);
                     send_command(MSP_GET_BAND_CHAN, 0, 0);
                     assert(response[8] == 32); // Active channel, not staged target.
                     send_command(MSP_GET_FREQ, 0, 0);
@@ -195,6 +204,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
                 }
                 poll_at(10000 + duration);
                 delayed_live(target + 1, changed ? 10 : 0, changed);
+                assert(!elrs_get_analog_hold(&hold));
                 if (changed)
                     assert(last_tune_ms - last_beep_ms == duration);
                 send_command(MSP_GET_BAND_CHAN, 0, 0);
@@ -257,6 +267,8 @@ static void test_delayed_retune(const uint16_t *frequencies) {
         if (kind == 7) g_hw_stat.av_chid = 0;
         poll_at(11000);
         assert(writes == 0 && beeps == 1 && g_setting.source.analog_channel == 33);
+        elrs_analog_hold_t hold;
+        assert(!elrs_get_analog_hold(&hold));
     }
 
     // Manual tuning away and back also invalidates a pending request.

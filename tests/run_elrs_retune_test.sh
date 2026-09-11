@@ -20,3 +20,6 @@ $cc $flags $includes -DEMULATOR_BUILD -c src/core/settings.c -o "$test_build/set
 $cc $flags $includes -c lib/minIni/src/minIni.c -o "$test_build/minIni.o"
 $cc $flags $includes -DEMULATOR_BUILD tests/test_elrs_delay_settings.c "$test_build/settings.o" "$test_build/minIni.o" $gc -o "$test_build/test_elrs_delay_settings"
 (cd "$test_build" && UBSAN_OPTIONS=halt_on_error=1 ./test_elrs_delay_settings)
+$cc $flags $includes -Dusleep=beep_test_usleep -c src/driver/beep.c -o "$test_build/beep.o"
+$cc $flags $includes tests/test_beep.c "$test_build/beep.o" $gc -pthread -o "$test_build/test_beep"
+UBSAN_OPTIONS=halt_on_error=1 "$test_build/test_beep"

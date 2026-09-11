@@ -43,8 +43,8 @@ void gpio_open(int port_num) {
     }
 }
 
-void gpio_set(int port_num, bool val) {
+bool gpio_set(int port_num, bool val) {
     char buf[64];
     snprintf(buf, sizeof(buf), "/sys/class/gpio/gpio%d/value", port_num);
-    fs_printf(buf, "%d", val ? 1 : 0);
+    return fs_printf(buf, "%d", val ? 1 : 0);
 }

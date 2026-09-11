@@ -82,6 +82,14 @@ void elrs_clear_osd();
 void elrs_poll_analog_retune(void);
 void elrs_cancel_analog_retune(void);
 
+typedef struct {
+    uint8_t active_channel; // zero-based analog channel index
+    uint8_t target_channel;
+    uint16_t remaining_ms;
+} elrs_analog_hold_t;
+// Read from the UI/main thread with lvgl_mutex held. Does not tune or cancel.
+bool elrs_get_analog_hold(elrs_analog_hold_t *hold);
+
 void msp_send_packet(uint16_t function, mspPacketType_e type, uint16_t payload_size, uint8_t *payload);
 bool msp_read_resposne(uint16_t function, uint16_t *payload_size, uint8_t *payload);
 mspAwaitResposne_e msp_await_resposne(uint16_t function, uint16_t payload_size, uint8_t *payload, uint32_t timeout_ms);

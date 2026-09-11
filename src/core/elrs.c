@@ -78,6 +78,20 @@ static bool analog_live_initialized(void) {
            g_hw_stat.source_mode == SOURCE_MODE_AV && g_hw_stat.av_chid == 1;
 }
 
+bool elrs_get_analog_hold(elrs_analog_hold_t *hold) {
+    if (!analog_retune_pending || !g_setting.elrs.enable ||
+        !g_setting.elrs.analog_delay_ms || !analog_live_initialized() ||
+        analog_pending_generation != atomic_load(&analog_retune_generation) ||
+        g_setting.source.analog_channel != analog_previous_channel)
+        return false;
+    uint64_t now = analog_monotonic_ms();
+    uint64_t elapsed = now >= analog_received_ms ? now - analog_received_ms : 0;
+    hold->active_channel = analog_previous_channel - 1;
+    hold->target_channel = analog_pending_channel;
+    hold->remaining_ms = elapsed < analog_pending_delay_ms ? analog_pending_delay_ms - elapsed : 0;
+    return true;
+}
+
 void elrs_poll_analog_retune(void) {
     if (!analog_retune_pending)
         return;
@@ -477,6 +491,10 @@ void msp_process_packet() {
             }
         } break;
         case MSP_SET_BUZZER:
+            if (packet.payload_size < 2)
+                break;
+            LOGI("ELRS explicit buzzer: %u ms at %llu ms", packet.payload[0] | packet.payload[1] << 8,
+                 (unsigned long long)analog_monotonic_ms());
             beep_dur((packet.payload[0] | packet.payload[1] << 8));
             break;
         case MSP_SET_OSD_ELEM:

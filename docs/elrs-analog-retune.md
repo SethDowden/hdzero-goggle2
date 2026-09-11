@@ -68,6 +68,40 @@ separate checks, not a shared-clock measurement of VTX mute. The adjustable
 delay provides a comparison using a receipt beep; a variable old-signal hold may
 ultimately favor a follower after the decoder loss indication is characterized.
 
+## Receipt cue investigation after the first hardware test
+
+The user reports immediate beep-to-visible-change even at 2 s and 5 s, using
+Pocket trims from normal live video. Treat that as an unresolved failure of the
+intended observation sequence. The recovered 0ea5da6 SD log contains seven delayed
+dispatches (three at 5025–5030 ms, four at 2028–2030 ms), followed by RTC6715 driver
+completion messages. These software timestamps do not measure audible beep onset,
+RF frequency/lock, or when the displayed picture changes. They do not override
+the user's observation or establish a successful end-to-end test.
+
+The follow-up adds **VRX HOLD R4 -> R5 5.0 s** at the top of live analog video,
+counting down the receiver hold and disappearing on dispatch/cancellation. It
+appears during a positive delay even if normal goggles OSD elements are hidden.
+The old/new names come from the staged receiver request, independent of the FC's
+VTX overlay. The original adjustable range, persistence and timing remain.
+
+A beeper defect was also found: unconditional condition-variable waiting could
+lose a request made before the worker waited or during an active tone. The worker
+now checks the pending duration before waiting, preserving the latest queued
+tone. A deterministic host test covers both cases. This is a proven software bug,
+not yet a proven explanation of the reported hardware behavior.
+
+Buzzer diagnostics now timestamp GPIO high/low writes, the requested time, tone
+duration and file-write success/failure. Explicit Backpack buzzer messages are
+logged separately. File writes are checked through close; successful sysfs writes
+still do not prove physical buzzer output. Pair the next visual countdown test
+with the audible cue and old-picture loss/new-picture return observations.
+
+A headless check using the actual LVGL menu/OSD code also verifies all 51 edited,
+displayed, saved and reloaded values, endpoints, exit behavior and the hold text
+with normal OSD disabled. It caught inherited grid gaps that pushed the last menu
+column outside its container; the ELRS page now explicitly uses zero grid gaps.
+The rendered hold banner was inspected locally.
+
 ## Existing immediate retune
 
 The UART3 reader in `src/driver/esp32.c` feeds MSPv2 bytes to

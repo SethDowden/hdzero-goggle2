@@ -117,6 +117,39 @@ static osd_font_t osd_font_hd;
 static osd_font_t osd_font_fhd;
 
 static lv_obj_t *analog_rssi_bar;
+static lv_obj_t *elrs_hold_label[2];
+
+static lv_obj_t *osd_elrs_hold_create(lv_obj_t *parent) {
+    lv_obj_t *label = lv_label_create(parent);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_26, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_bg_color(label, lv_color_hex(0x010101), 0);
+    lv_obj_set_style_bg_opa(label, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(label, 8, 0);
+    lv_label_set_text(label, "");
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 12);
+    lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+    return label;
+}
+
+static void osd_elrs_hold_update(void) {
+    elrs_analog_hold_t hold;
+    lv_obj_t *label = elrs_hold_label[is_fhd];
+    if (!elrs_get_analog_hold(&hold)) {
+        lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    // This cue belongs to the delayed-retune experiment, independent of the
+    // normal OSD visibility toggle. It displays the receiver's active channel.
+    char text[64];
+    unsigned int tenths = (hold.remaining_ms + 99) / 100;
+    snprintf(text, sizeof(text), "VRX HOLD %s -> %s  %u.%u s",
+             channel2str(0, 0, hold.active_channel + 1),
+             channel2str(0, 0, hold.target_channel + 1), tenths / 10, tenths % 10);
+    if (strcmp(lv_label_get_text(label), text) != 0)
+        lv_label_set_text(label, text);
+    lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
+}
 
 void osd_llock_show(bool bShow) {
     char buf[128];
@@ -637,6 +670,8 @@ void osd_hdzero_update(void) {
     if (fhd_change())
         return;
 
+    osd_elrs_hold_update();
+
     // if the user is in the osd element position settings, show all elements
     if (g_app_state == APP_STATE_OSD_ELEMENT_PREV) {
         // show actual value so text length is correct, to make it easier to position
@@ -798,6 +833,8 @@ static void embedded_osd_init(uint8_t fhd) {
 
     fhd &= 1;
     so = scr_osd[fhd];
+
+    elrs_hold_label[fhd] = osd_elrs_hold_create(so);
 
     osd_resource_path(buf, "%s", is_fhd, fan1_bmp);
     osd_object_create_img(fhd, &g_osd_hdzero.topfan_speed[fhd], buf, &g_setting.osd.element[OSD_GOGGLE_TOPFAN_SPEED].position, so);

@@ -59,12 +59,12 @@ bool fs_printf(const char *filename, const char *fmt, ...) {
 
     va_list args;
     va_start(args, fmt);
-    vfprintf(fp, fmt, args);
+    int written = vfprintf(fp, fmt, args);
     va_end(args);
 
-    fclose(fp);
+    int closed = fclose(fp);
 
-    return true;
+    return written >= 0 && closed == 0;
 }
 
 long fs_filesize(const char *filename) {
