@@ -124,7 +124,8 @@ typedef struct {
 
 typedef struct {
     bool enable;
-    bool analog_delay; // Hold the active analog channel for 1 s after a request.
+    bool analog_delay;
+    uint16_t analog_delay_ms; // 500 or 1000; ignored when analog_delay is off.
 } setting_elrs_t;
 
 typedef enum {

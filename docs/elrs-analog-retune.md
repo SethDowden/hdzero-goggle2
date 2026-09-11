@@ -1,29 +1,31 @@
 # ELRS Backpack analog retuning
 
-## One-second observation mode
+## Fixed-delay observation mode
 
-The ELRS settings page now has **Analog delay: Off / 1 s**. It defaults to Off,
+The ELRS settings page now has **Analog delay: Off / 0.5 s / 1 s**. It defaults to Off,
 which retains the existing immediate, silent live retune. The selection is saved
-as `[elrs] analog_delay` through the normal settings mechanism.
+as `[elrs] analog_delay` and `analog_delay_ms` through the normal settings
+mechanism. An earlier enabled one-second setting remains at one second after
+updating; missing or invalid duration values default to 1000 ms.
 
-For the observation test, select **1 s**, enable Backpack, and return to live
+For the observation test, select **0.5 s** or **1 s**, enable Backpack, and return to live
 internal analog video before changing channel on the Pocket. A new accepted
-channel request makes one short beep, holds the active channel for one second
-from receipt, then calls the existing fast tuner routine. The channel setting and
+channel request makes one short beep, holds the active channel for the selected
+500 or 1000 ms from receipt, then calls the existing fast tuner routine. The channel setting and
 GET channel/frequency replies continue to identify the active old channel during
 the wait. Neither the video pipeline nor DVR is restarted for this live change.
 
 The pending request uses `CLOCK_MONOTONIC`. The existing main loop checks it
 while holding `lvgl_mutex`, nominally once per 5 ms plus loop work. There is no
-one-second sleep, extra thread or blocking wait. Actual tuner dispatch can be
+delay sleep, extra thread or blocking wait. Actual tuner dispatch can be
 later than its deadline if the main loop is busy; this is an observation aid,
 not a hard real-time synchronization guarantee. Log entries include request
 receipt and tuner-dispatch timestamps. The audible beep also has the normal
 beeper thread's scheduling latency.
 
 Repeated SETs for the pending target do not restart its deadline or beep again.
-A different target replaces the pending request and starts a new one-second
-wait. Returning to the active channel cancels the pending change and beeps to
+A different target replaces the pending request and starts a new
+wait at the selected duration. Returning to the active channel cancels the pending change and beeps to
 acknowledge that cancellation. Once a target is active, identical requests are
 silent. Legacy Backpack messages have no request ID: an old, differently valued
 retry cannot be distinguished from a deliberate new selection. Use isolated
@@ -32,7 +34,7 @@ changes for the first timing comparisons.
 Leaving video, sleeping, manual hardware tuning, receiver power initialization,
 or changing the delay setting invalidates pending work. The executor also checks
 that Backpack is enabled and the internal analog source is still initialized.
-Startup/menu requests use the existing full initialization path; the one-second
+Startup/menu requests use the existing full initialization path; the configured
 observation hold applies only to live video. Digital-source behavior is unchanged.
 
 Use a brief fan-cooled, disarmed test at an explicitly selected **25 mW**, with
@@ -48,6 +50,14 @@ An initial comparison needs no new firmware: disable only the goggles Backpack,
 leave the goggles on the old channel, and change channel on the Pocket. This
 reveals old-picture survival after input; the Pocket voice/input is earlier than
 ELRS dispatch and is not equivalent to the new mode's receipt beep.
+
+The user reports that, with Backpack disabled and the earlier fast-retune build
+still installed, the old-channel picture stays visible about 0.5–1 s before
+dropping out. With Backpack enabled, the goggles appear to retune immediately
+and show about 0.5 s of static before new video. These are visual estimates from
+separate checks, not a shared-clock measurement of VTX mute. The two selectable
+delays provide a comparison using a receipt beep; a variable old-signal hold may
+ultimately favor a follower after the decoder loss indication is characterized.
 
 ## Existing immediate retune
 
@@ -113,10 +123,10 @@ entry still performs startup and that live retuning retains only the two tuner
 write waits without stopping DVR. Hardware timing and recorded-video continuity
 still need bench verification, including rapid changes and PAL/NTSC transitions.
 
-The same harness now also covers delayed requests for all 48 channel/frequency
-entries, repeated commands before the deadline, receipt beeps, active-channel
+The same harness now also covers both 500 ms and 1000 ms requests for all 48
+channel/frequency entries, repeated commands before the deadline, receipt beeps, active-channel
 readbacks during the wait, replacement and cancellation, menu/sleep round trips,
-manual retuning, source changes, clock failure and crossing a 32-bit millisecond
+manual retuning, duration changes, source changes, clock failure and crossing a 32-bit millisecond
 boundary. It compiles the actual production parser, scheduler, analog entry and
 tuner functions with a controlled monotonic clock and mocked hardware. GitHub
 Actions runs it before building the firmware image. These checks establish

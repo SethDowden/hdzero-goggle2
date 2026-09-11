@@ -58,6 +58,7 @@ static bool analog_retune_pending;
 static uint8_t analog_pending_channel;
 static uint8_t analog_previous_channel;
 static uint64_t analog_received_ms;
+static uint16_t analog_pending_delay_ms;
 
 static uint64_t analog_monotonic_ms(void) {
     struct timespec now;
@@ -89,7 +90,7 @@ void elrs_poll_analog_retune(void) {
     }
 
     uint64_t now = analog_monotonic_ms();
-    if (now < analog_received_ms || now - analog_received_ms < 1000)
+    if (now < analog_received_ms || now - analog_received_ms < analog_pending_delay_ms)
         return;
 
     analog_retune_pending = false;
@@ -326,9 +327,11 @@ static void elrs_set_analog_channel(uint8_t chan) {
                 analog_previous_channel = g_setting.source.analog_channel;
                 analog_pending_generation = atomic_load(&analog_retune_generation);
                 analog_received_ms = received_ms;
+                analog_pending_delay_ms = g_setting.elrs.analog_delay_ms == 500 ? 500 : 1000;
                 beep();
-                LOGI("ELRS analog delay: received ch=%u at %llu ms; holding ch=%u for 1000 ms",
-                     chan, (unsigned long long)received_ms, analog_previous_channel - 1);
+                LOGI("ELRS analog delay: received ch=%u at %llu ms; holding ch=%u for %u ms",
+                     chan, (unsigned long long)received_ms, analog_previous_channel - 1,
+                     analog_pending_delay_ms);
             }
             pthread_mutex_unlock(&lvgl_mutex);
             return;

@@ -106,12 +106,12 @@ static lv_obj_t *page_elrs_create(lv_obj_t *parent, panel_arr_t *arr) {
     label_wifi_status = create_label_item(cont, _lang("Click to start"), 2, POS_WIFI, 1);
     btn_bind = create_label_item(cont, _lang("Bind"), 1, POS_BIND, 1);
     label_bind_status = create_label_item(cont, _lang("Click to start"), 2, POS_BIND, 1);
-    create_btn_group_item(&analog_delay_group, cont, 2, "Analog delay", _lang("Off"), "1 s", "", "", POS_ANALOG_DELAY);
-    btn_group_set_sel(&analog_delay_group, g_setting.elrs.analog_delay);
+    create_btn_group_item(&analog_delay_group, cont, 3, "Analog delay", _lang("Off"), "0.5 s", "1 s", "", POS_ANALOG_DELAY);
+    btn_group_set_sel(&analog_delay_group, g_setting.elrs.analog_delay ? g_setting.elrs.analog_delay_ms / 500 : 0);
     snprintf(buf, sizeof(buf), "< %s", _lang("Back"));
     create_label_item(cont, buf, 1, POS_BACK, 1);
 
-    lv_obj_t *delay_info = create_info_item(cont, "1 s: beep on request, then change channel after the wait.", 1, POS_MAX + 2, 4);
+    lv_obj_t *delay_info = create_info_item(cont, "Delay: beep on request, keep old channel until the wait ends.", 1, POS_MAX + 2, 4);
     lv_obj_set_width(delay_info, 700);
 
     cancel_label = lv_label_create(cont);
@@ -192,8 +192,12 @@ static void page_elrs_on_click(uint8_t key, int sel) {
         update_visibility();
     } else if (sel == POS_ANALOG_DELAY) {
         btn_group_toggle_sel(&analog_delay_group);
-        g_setting.elrs.analog_delay = btn_group_get_sel(&analog_delay_group) == 1;
+        int delay_selection = btn_group_get_sel(&analog_delay_group);
+        g_setting.elrs.analog_delay = delay_selection != 0;
+        if (g_setting.elrs.analog_delay)
+            g_setting.elrs.analog_delay_ms = delay_selection * 500;
         elrs_cancel_analog_retune();
+        ini_putl("elrs", "analog_delay_ms", g_setting.elrs.analog_delay_ms, SETTING_INI);
         settings_put_bool("elrs", "analog_delay", g_setting.elrs.analog_delay);
     } else if (sel == POS_VTX) // Send VTX freq
     {

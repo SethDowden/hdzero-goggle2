@@ -77,6 +77,7 @@ const setting_t g_setting_defaults = {
     .elrs = {
         .enable = false,
         .analog_delay = false,
+        .analog_delay_ms = 1000,
     },
     .ease = {
         .no_dial = 0,
@@ -437,6 +438,9 @@ void settings_load(void) {
     // elrs
     g_setting.elrs.enable = settings_get_bool("elrs", "enable", g_setting_defaults.elrs.enable);
     g_setting.elrs.analog_delay = settings_get_bool("elrs", "analog_delay", g_setting_defaults.elrs.analog_delay);
+    // Keep the previous true/false setting; older enabled installs retain 1 s.
+    long analog_delay_ms = ini_getl("elrs", "analog_delay_ms", g_setting_defaults.elrs.analog_delay_ms, SETTING_INI);
+    g_setting.elrs.analog_delay_ms = analog_delay_ms == 500 ? 500 : 1000;
 
     // clock
     g_setting.clock.year = ini_getl("clock", "year", g_setting_defaults.clock.year, SETTING_INI);
