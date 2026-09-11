@@ -33,7 +33,7 @@ enum {
     POS_MAX
 };
 
-static lv_coord_t col_dsc[] = {160, 220, 160, 160, 160, 160, LV_GRID_TEMPLATE_LAST};
+static lv_coord_t col_dsc[] = {160, 160, 160, 160, 160, 160, LV_GRID_TEMPLATE_LAST};
 static lv_coord_t row_dsc[] = {60, 60, 60, 60, 60, 60, 40, 40, 60, 60, LV_GRID_TEMPLATE_LAST};
 static lv_obj_t *btn_wifi;
 static lv_obj_t *label_wifi_status;
