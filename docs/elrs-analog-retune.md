@@ -1,19 +1,28 @@
 # ELRS Backpack analog retuning
 
-## Fixed-delay observation mode
+## Adjustable-delay observation mode
 
-The ELRS settings page now has **Analog delay: Off / 0.5 s / 1 s**. It defaults to Off,
-which retains the existing immediate, silent live retune. The selection is saved
-as `[elrs] analog_delay` and `analog_delay_ms` through the normal settings
-mechanism. An earlier enabled one-second setting remains at one second after
-updating; missing or invalid duration values default to 1000 ms.
+The goggles' **ELRS → Analog delay** menu has a slider from **0.0 to 5.0 s**
+in **0.1 s steps**, initially **1.5 s**. Click the wheel to edit, turn to adjust,
+then click again to save and resume menu navigation. The selection survives a
+restart. Zero retains the existing immediate, silent live retune; positive
+values beep on receipt and hold the old channel before retuning.
 
-For the observation test, select **0.5 s** or **1 s**, enable Backpack, and return to live
-internal analog video before changing channel on the Pocket. A new accepted
-channel request makes one short beep, holds the active channel for the selected
-500 or 1000 ms from receipt, then calls the existing fast tuner routine. The channel setting and
+The numeric selection is saved once when editing finishes, as `[elrs]
+analog_hold_ms` in the normal settings file. The new key deliberately starts
+this experiment at the requested 1500 ms even if an older Off/0.5/1 s setting
+exists. Old keys are left intact but ignored by this build. Saved values are
+clamped to 0..5000 ms and rounded down to a 100 ms step when loaded. A failed
+save leaves the previous setting active and displays “Save failed”.
+
+For the observation test, enable Backpack and return to live internal analog
+video before changing channel on the Pocket. A new accepted channel request
+makes one short beep, holds the active channel for the selected duration from
+receipt, then calls the existing fast tuner routine. The channel setting and
 GET channel/frequency replies continue to identify the active old channel during
 the wait. Neither the video pipeline nor DVR is restarted for this live change.
+The delay controls the goggles receiver; it cannot make the whoop continue
+transmitting on the old channel after the whoop itself switches.
 
 The pending request uses `CLOCK_MONOTONIC`. The existing main loop checks it
 while holding `lvgl_mutex`, nominally once per 5 ms plus loop work. There is no
@@ -55,8 +64,8 @@ The user reports that, with Backpack disabled and the earlier fast-retune build
 still installed, the old-channel picture stays visible about 0.5–1 s before
 dropping out. With Backpack enabled, the goggles appear to retune immediately
 and show about 0.5 s of static before new video. These are visual estimates from
-separate checks, not a shared-clock measurement of VTX mute. The two selectable
-delays provide a comparison using a receipt beep; a variable old-signal hold may
+separate checks, not a shared-clock measurement of VTX mute. The adjustable
+delay provides a comparison using a receipt beep; a variable old-signal hold may
 ultimately favor a follower after the decoder loss indication is characterized.
 
 ## Existing immediate retune
@@ -90,7 +99,7 @@ to other selected sources retain their existing source routing.
 Channel indices outside 0–47 and short channel/frequency payloads are ignored.
 Frequency requests use the existing 48-channel table; unsupported frequencies
 are ignored, and 5880 MHz resolves to its first entry, F8. Analog channel and
-frequency replies now read the same analog setting. With Analog delay Off,
+frequency replies now read the same analog setting. With Analog delay at 0.0 s,
 automatic beeps remain removed from the two ELRS tuning commands, including
 their digital branches.
 Explicit `MSP_SET_BUZZER`, manual controls, and UI/status beeps are unchanged.
@@ -123,7 +132,7 @@ entry still performs startup and that live retuning retains only the two tuner
 write waits without stopping DVR. Hardware timing and recorded-video continuity
 still need bench verification, including rapid changes and PAL/NTSC transitions.
 
-The same harness now also covers both 500 ms and 1000 ms requests for all 48
+The same harness now also covers all 50 positive delays (100..5000 ms) for all 48
 channel/frequency entries, repeated commands before the deadline, receipt beeps, active-channel
 readbacks during the wait, replacement and cancellation, menu/sleep round trips,
 manual retuning, duration changes, source changes, clock failure and crossing a 32-bit millisecond
@@ -131,3 +140,8 @@ boundary. It compiles the actual production parser, scheduler, analog entry and
 tuner functions with a controlled monotonic clock and mocked hardware. GitHub
 Actions runs it before building the firmware image. These checks establish
 software behavior; physical timing remains to be tested on the goggles.
+
+A second host executable uses the actual settings loader and minIni against a
+temporary settings file. It checks migration from all older delay choices to
+1500 ms, all 51 saved values across repeated loads, out-of-range/off-step input,
+and preservation of Backpack, channel and fan settings.

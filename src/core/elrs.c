@@ -81,7 +81,7 @@ static bool analog_live_initialized(void) {
 void elrs_poll_analog_retune(void) {
     if (!analog_retune_pending)
         return;
-    if (!g_setting.elrs.enable || !g_setting.elrs.analog_delay ||
+    if (!g_setting.elrs.enable || !g_setting.elrs.analog_delay_ms ||
         !analog_live_initialized() ||
         analog_pending_generation != atomic_load(&analog_retune_generation) ||
         g_setting.source.analog_channel != analog_previous_channel) {
@@ -308,7 +308,7 @@ static void elrs_set_analog_channel(uint8_t chan) {
         // Source_AV() sets these hardware fields after configuring analog video.
         // The selected source alone can still refer to analog while in a menu.
         bool initialized = analog_live_initialized();
-        if (g_setting.elrs.analog_delay && initialized) {
+        if (g_setting.elrs.analog_delay_ms && initialized) {
             if (analog_pending_generation != atomic_load(&analog_retune_generation) ||
                 g_setting.source.analog_channel != analog_previous_channel)
                 analog_retune_pending = false;
@@ -327,7 +327,7 @@ static void elrs_set_analog_channel(uint8_t chan) {
                 analog_previous_channel = g_setting.source.analog_channel;
                 analog_pending_generation = atomic_load(&analog_retune_generation);
                 analog_received_ms = received_ms;
-                analog_pending_delay_ms = g_setting.elrs.analog_delay_ms == 500 ? 500 : 1000;
+                analog_pending_delay_ms = g_setting.elrs.analog_delay_ms;
                 beep();
                 LOGI("ELRS analog delay: received ch=%u at %llu ms; holding ch=%u for %u ms",
                      chan, (unsigned long long)received_ms, analog_previous_channel - 1,
@@ -339,7 +339,7 @@ static void elrs_set_analog_channel(uint8_t chan) {
 
         analog_retune_pending = false;
         if (g_setting.source.analog_channel != chan + 1 || !initialized) {
-            if (g_setting.elrs.analog_delay)
+            if (g_setting.elrs.analog_delay_ms)
                 beep();
             g_setting.source.analog_channel = chan + 1;
             if (initialized) {

@@ -124,8 +124,7 @@ typedef struct {
 
 typedef struct {
     bool enable;
-    bool analog_delay;
-    uint16_t analog_delay_ms; // 500 or 1000; ignored when analog_delay is off.
+    uint16_t analog_delay_ms; // 0 = immediate; 100..5000 in 100 ms steps.
 } setting_elrs_t;
 
 typedef enum {

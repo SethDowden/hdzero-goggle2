@@ -16,3 +16,7 @@ case $(uname -s) in
 esac
 $cc $flags $includes tests/test_elrs_retune.c "$test_build/app_state.o" "$test_build/elrs.o" "$test_build/rtc6715.o" $gc -pthread -o "$test_build/test_elrs_retune"
 UBSAN_OPTIONS=halt_on_error=1 "$test_build/test_elrs_retune"
+$cc $flags $includes -DEMULATOR_BUILD -c src/core/settings.c -o "$test_build/settings.o"
+$cc $flags $includes -c lib/minIni/src/minIni.c -o "$test_build/minIni.o"
+$cc $flags $includes -DEMULATOR_BUILD tests/test_elrs_delay_settings.c "$test_build/settings.o" "$test_build/minIni.o" $gc -o "$test_build/test_elrs_delay_settings"
+(cd "$test_build" && UBSAN_OPTIONS=halt_on_error=1 ./test_elrs_delay_settings)

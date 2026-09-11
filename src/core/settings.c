@@ -76,8 +76,7 @@ const setting_t g_setting_defaults = {
     },
     .elrs = {
         .enable = false,
-        .analog_delay = false,
-        .analog_delay_ms = 1000,
+        .analog_delay_ms = 1500,
     },
     .ease = {
         .no_dial = 0,
@@ -437,10 +436,14 @@ void settings_load(void) {
 
     // elrs
     g_setting.elrs.enable = settings_get_bool("elrs", "enable", g_setting_defaults.elrs.enable);
-    g_setting.elrs.analog_delay = settings_get_bool("elrs", "analog_delay", g_setting_defaults.elrs.analog_delay);
-    // Keep the previous true/false setting; older enabled installs retain 1 s.
-    long analog_delay_ms = ini_getl("elrs", "analog_delay_ms", g_setting_defaults.elrs.analog_delay_ms, SETTING_INI);
-    g_setting.elrs.analog_delay_ms = analog_delay_ms == 500 ? 500 : 1000;
+    // A new key starts the adjustable experiment at 1.5 s even after an older
+    // Off/0.5/1 s test. Subsequent user choices (including zero) survive restart.
+    long analog_delay_ms = ini_getl("elrs", "analog_hold_ms", g_setting_defaults.elrs.analog_delay_ms, SETTING_INI);
+    if (analog_delay_ms < 0)
+        analog_delay_ms = 0;
+    if (analog_delay_ms > 5000)
+        analog_delay_ms = 5000;
+    g_setting.elrs.analog_delay_ms = (analog_delay_ms / 100) * 100;
 
     // clock
     g_setting.clock.year = ini_getl("clock", "year", g_setting_defaults.clock.year, SETTING_INI);

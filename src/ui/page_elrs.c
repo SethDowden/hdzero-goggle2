@@ -14,6 +14,7 @@
 #include <log/log.h>
 #include <minIni.h>
 
+#include "core/app_state.h"
 #include "core/common.hh"
 #include "core/elrs.h"
 #include "core/settings.h"
@@ -41,8 +42,37 @@ static lv_obj_t *label_bind_status;
 static lv_obj_t *cancel_label;
 static lv_obj_t *btn_vtx_send;
 static btn_group_t elrs_group;
-static btn_group_t analog_delay_group;
+static slider_group_t analog_delay_group;
+static bool editing_delay = false;
 static bool binding = false;
+
+static void analog_delay_update_label(void) {
+    int steps = lv_slider_get_value(analog_delay_group.slider);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d.%d s", steps / 10, steps % 10);
+    lv_label_set_text(analog_delay_group.label, buf);
+}
+
+static void page_elrs_exit(void) {
+    if (!editing_delay)
+        return;
+    int delay_ms = lv_slider_get_value(analog_delay_group.slider) * 100;
+    // Save once on completion, rather than writing flash on every wheel step.
+    if (!ini_putl("elrs", "analog_hold_ms", delay_ms, SETTING_INI)) {
+        LOGE("ELRS analog delay: could not save setting");
+        lv_slider_set_value(analog_delay_group.slider, g_setting.elrs.analog_delay_ms / 100, LV_ANIM_OFF);
+        lv_label_set_text(analog_delay_group.label, "Save failed");
+    } else {
+        g_setting.elrs.analog_delay_ms = delay_ms;
+        elrs_cancel_analog_retune();
+        analog_delay_update_label();
+    }
+    lv_obj_remove_style(analog_delay_group.slider, &style_silder_select, LV_PART_MAIN);
+    editing_delay = false;
+    // submenu_exit() may already have moved to the main menu.
+    if (g_app_state == APP_STATE_SUBMENU_ITEM_FOCUSED)
+        app_state_push(APP_STATE_SUBMENU);
+}
 
 static void update_visibility() {
     const bool backpackIsActive = elrs_group.current == 0;
@@ -106,13 +136,15 @@ static lv_obj_t *page_elrs_create(lv_obj_t *parent, panel_arr_t *arr) {
     label_wifi_status = create_label_item(cont, _lang("Click to start"), 2, POS_WIFI, 1);
     btn_bind = create_label_item(cont, _lang("Bind"), 1, POS_BIND, 1);
     label_bind_status = create_label_item(cont, _lang("Click to start"), 2, POS_BIND, 1);
-    create_btn_group_item(&analog_delay_group, cont, 3, "Analog delay", _lang("Off"), "0.5 s", "1 s", "", POS_ANALOG_DELAY);
-    btn_group_set_sel(&analog_delay_group, g_setting.elrs.analog_delay ? g_setting.elrs.analog_delay_ms / 500 : 0);
+    create_slider_item(&analog_delay_group, cont, "Analog delay", 50, g_setting.elrs.analog_delay_ms / 100, POS_ANALOG_DELAY);
+    analog_delay_update_label();
     snprintf(buf, sizeof(buf), "< %s", _lang("Back"));
     create_label_item(cont, buf, 1, POS_BACK, 1);
 
-    lv_obj_t *delay_info = create_info_item(cont, "Delay: beep on request, keep old channel until the wait ends.", 1, POS_MAX + 2, 4);
+    lv_obj_t *delay_info = create_info_item(cont, "Click to edit/save; turn for 0.1 s steps. 0.0 s = immediate.\nBeep on request; keep old channel until the delay ends.", 1, POS_MAX + 2, 4);
     lv_obj_set_width(delay_info, 700);
+    lv_label_set_long_mode(delay_info, LV_LABEL_LONG_WRAP);
+    lv_obj_set_height(delay_info, LV_SIZE_CONTENT);
 
     cancel_label = lv_label_create(cont);
     lv_obj_add_flag(cancel_label, LV_OBJ_FLAG_HIDDEN);
@@ -136,6 +168,15 @@ static void page_elrs_reset() {
 
 static void page_elrs_on_roller(uint8_t key) {
     page_elrs_reset();
+    if (!editing_delay)
+        return;
+    int steps = lv_slider_get_value(analog_delay_group.slider);
+    if (key == DIAL_KEY_UP && steps > 0)
+        steps--;
+    else if (key == DIAL_KEY_DOWN && steps < 50)
+        steps++;
+    lv_slider_set_value(analog_delay_group.slider, steps, LV_ANIM_OFF);
+    analog_delay_update_label();
 }
 
 static void elrs_status_timer(struct _lv_timer_t *timer) {
@@ -168,6 +209,8 @@ static void elrs_enable_timer(struct _lv_timer_t *timer) {
 }
 
 static void page_elrs_enter() {
+    lv_slider_set_value(analog_delay_group.slider, g_setting.elrs.analog_delay_ms / 100, LV_ANIM_OFF);
+    analog_delay_update_label();
     lv_label_set_text(label_wifi_status, _lang("Click to start"));
     lv_label_set_text(label_bind_status, _lang("Click to start"));
     if (elrs_group.current == 0) {
@@ -180,6 +223,10 @@ static void page_elrs_enter() {
 static void page_elrs_on_click(uint8_t key, int sel) {
     char buf[128];
     page_elrs_reset();
+    if (editing_delay) {
+        page_elrs_exit();
+        return;
+    }
     if (sel == POS_PWR) {
         btn_group_toggle_sel(&elrs_group);
         g_setting.elrs.enable = btn_group_get_sel(&elrs_group) == 0;
@@ -191,14 +238,11 @@ static void page_elrs_on_click(uint8_t key, int sel) {
 
         update_visibility();
     } else if (sel == POS_ANALOG_DELAY) {
-        btn_group_toggle_sel(&analog_delay_group);
-        int delay_selection = btn_group_get_sel(&analog_delay_group);
-        g_setting.elrs.analog_delay = delay_selection != 0;
-        if (g_setting.elrs.analog_delay)
-            g_setting.elrs.analog_delay_ms = delay_selection * 500;
+        editing_delay = true;
+        analog_delay_update_label();
+        app_state_push(APP_STATE_SUBMENU_ITEM_FOCUSED);
+        lv_obj_add_style(analog_delay_group.slider, &style_silder_select, LV_PART_MAIN);
         elrs_cancel_analog_retune();
-        ini_putl("elrs", "analog_delay_ms", g_setting.elrs.analog_delay_ms, SETTING_INI);
-        settings_put_bool("elrs", "analog_delay", g_setting.elrs.analog_delay);
     } else if (sel == POS_VTX) // Send VTX freq
     {
         msp_channel_update();
@@ -277,7 +321,7 @@ page_pack_t pp_elrs = {
     .name = "ELRS",
     .create = page_elrs_create,
     .enter = page_elrs_enter,
-    .exit = NULL,
+    .exit = page_elrs_exit,
     .on_created = NULL,
     .on_update = NULL,
     .on_roller = page_elrs_on_roller,

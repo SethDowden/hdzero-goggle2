@@ -104,7 +104,7 @@ static void reset(void) {
     g_setting.source.analog_channel = 33;
     g_setting.scan.channel = 7;
     g_setting.elrs.enable = true;
-    g_setting.elrs.analog_delay_ms = 1000;
+    g_setting.elrs.analog_delay_ms = 0;
     g_hw_stat.source_mode = SOURCE_MODE_AV;
     g_hw_stat.av_chid = 1;
     beeps = dvr_stops = source_inits = power_calls = system_calls = writes = hd_switches = 0;
@@ -169,11 +169,10 @@ static void delayed_live(int channel, int expected_writes, int expected_beeps) {
 
 static void test_delayed_retune(const uint16_t *frequencies) {
     // Run every channel and frequency through the actual MSP parser and tuner.
-    for (int duration = 500; duration <= 1000; duration += 500) {
+    for (int duration = 100; duration <= 5000; duration += 100) {
         for (int kind = 0; kind < 2; kind++) {
             for (int ch = 0; ch < 48; ch++) {
                 reset();
-                g_setting.elrs.analog_delay = true;
                 g_setting.elrs.analog_delay_ms = duration;
                 int target = kind && ch == 38 ? 31 : ch; // 5880 -> first match F8
                 int function = kind ? MSP_SET_FREQ : MSP_SET_BAND_CHAN;
@@ -184,7 +183,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
                 delayed_live(33, 0, changed);
                 if (changed)
                     assert(last_beep_ms == 10000);
-                const int retries[] = {1, 100, duration / 4, duration / 2, duration * 3 / 4, duration - 1};
+                const int retries[] = {1, duration / 5, duration / 4, duration / 2, duration * 3 / 4, duration - 1};
                 for (unsigned int r = 0; r < sizeof(retries) / sizeof(retries[0]); r++) {
                     poll_at(10000 + retries[r]);
                     send_command(function, value, len);
@@ -201,7 +200,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
                 send_command(MSP_GET_BAND_CHAN, 0, 0);
                 assert(response[8] == target);
                 send_command(function, value, len);
-                poll_at(12000);
+                poll_at(10000 + duration + 1000);
                 delayed_live(target + 1, changed ? 10 : 0, changed);
             }
         }
@@ -209,7 +208,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
 
     // A UI duration change invalidates the old deadline even when still enabled.
     reset();
-    g_setting.elrs.analog_delay = true;
+    g_setting.elrs.analog_delay_ms = 1000;
     send_command(MSP_SET_BAND_CHAN, 33, 1);
     g_setting.elrs.analog_delay_ms = 500;
     elrs_cancel_analog_retune();
@@ -223,7 +222,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
 
     // A genuinely different target replaces the pending selection and deadline.
     reset();
-    g_setting.elrs.analog_delay = true;
+    g_setting.elrs.analog_delay_ms = 1000;
     send_command(MSP_SET_BAND_CHAN, 33, 1);
     poll_at(10600);
     send_command(MSP_SET_BAND_CHAN, 34, 1);
@@ -236,7 +235,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
 
     // Returning to the currently active channel cancels a queued transition.
     reset();
-    g_setting.elrs.analog_delay = true;
+    g_setting.elrs.analog_delay_ms = 1000;
     send_command(MSP_SET_BAND_CHAN, 33, 1);
     poll_at(10500);
     send_command(MSP_SET_BAND_CHAN, 32, 1);
@@ -246,14 +245,14 @@ static void test_delayed_retune(const uint16_t *frequencies) {
     // Lifecycle transitions cancel even if analog video is restored before poll.
     for (int kind = 0; kind < 8; kind++) {
         reset();
-        g_setting.elrs.analog_delay = true;
+        g_setting.elrs.analog_delay_ms = 1000;
         send_command(MSP_SET_BAND_CHAN, 33, 1);
         if (kind == 0) { app_state_push(APP_STATE_MAINMENU); app_state_push(APP_STATE_VIDEO); }
         if (kind == 1) { app_state_push(APP_STATE_SLEEP); app_state_push(APP_STATE_VIDEO); }
         if (kind == 2) g_source_info.source = SOURCE_HDMI_IN;
         if (kind == 3) g_setting.source.analog_module = SETTING_SOURCES_ANALOG_MODULE_EXTERNAL;
         if (kind == 4) g_setting.elrs.enable = false;
-        if (kind == 5) g_setting.elrs.analog_delay = false;
+        if (kind == 5) g_setting.elrs.analog_delay_ms = 0;
         if (kind == 6) g_init_done = 0;
         if (kind == 7) g_hw_stat.av_chid = 0;
         poll_at(11000);
@@ -262,7 +261,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
 
     // Manual tuning away and back also invalidates a pending request.
     reset();
-    g_setting.elrs.analog_delay = true;
+    g_setting.elrs.analog_delay_ms = 1000;
     send_command(MSP_SET_BAND_CHAN, 33, 1);
     RTC6715_SetCH(34);
     RTC6715_SetCH(32);
@@ -271,7 +270,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
 
     // Power reinitialization invalidates old work.
     reset();
-    g_setting.elrs.analog_delay = true;
+    g_setting.elrs.analog_delay_ms = 1000;
     send_command(MSP_SET_BAND_CHAN, 33, 1);
     RTC6715_Open(1, 0);
     int prior_writes = writes;
@@ -280,7 +279,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
 
     // No clock, no premature tuning; RTC/wall-clock time is never consulted.
     reset();
-    g_setting.elrs.analog_delay = true;
+    g_setting.elrs.analog_delay_ms = 1000;
     clock_failed = true;
     send_command(MSP_SET_BAND_CHAN, 33, 1);
     poll_at(12000);
@@ -295,7 +294,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
 
     // Invalid/short commands do not beep or disturb valid pending work.
     reset();
-    g_setting.elrs.analog_delay = true;
+    g_setting.elrs.analog_delay_ms = 1000;
     send_command(MSP_SET_BAND_CHAN, 33, 1);
     send_command(MSP_SET_BAND_CHAN, 48, 1);
     send_command(MSP_SET_BAND_CHAN, 255, 1);
@@ -306,7 +305,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
 
     // Startup/menu requests retain the established full initialization path.
     reset();
-    g_setting.elrs.analog_delay = true;
+    g_setting.elrs.analog_delay_ms = 1000;
     app_state_push(APP_STATE_MAINMENU);
     send_command(MSP_SET_BAND_CHAN, 33, 1);
     assert(beeps == 1);
@@ -316,7 +315,7 @@ static void test_delayed_retune(const uint16_t *frequencies) {
     poll_at(12000);
     assert(writes == prior_writes);
 
-    puts("PASS: 0.5 s and 1 s delays across all 48 channels/frequencies, receipt beeps, deadlines, retries, truthful readbacks, duration changes, replacement/cancellation, lifecycle/manual tuning, clock failure/wrap and initialization");
+    puts("PASS: all 50 delays from 0.1 to 5.0 s in 0.1 s steps across all 48 channels/frequencies, receipt beeps, deadlines, retries, truthful readbacks, duration changes, replacement/cancellation, lifecycle/manual tuning, clock failure/wrap and initialization");
 }
 
 int main(void) {
