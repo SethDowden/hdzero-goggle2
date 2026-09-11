@@ -8,6 +8,7 @@
 
 #include "../core/common.hh"
 #include "../core/defines.h"
+#include "core/elrs.h"
 #include "driver/dm5680.h"
 #include "driver/gpio.h"
 #include "gpadc.h"
@@ -45,6 +46,7 @@ void RTC6715_SetAudio(int is_on) {
 }
 
 void RTC6715_Open(int power_on, int audio_on) {
+    elrs_cancel_analog_retune();
     DM5680_InternalAnalog_Power(power_on);
     gpadc_on(power_on);
     if (power_on) {
@@ -56,6 +58,7 @@ void RTC6715_Open(int power_on, int audio_on) {
 }
 
 void RTC6715_SetCH(int ch) {
+    elrs_cancel_analog_retune();
 
     const uint32_t tab[48] = {
         0x2a05, 0x299b, 0x2991, 0x2987, 0x291d, 0x2913, 0x2909, 0x289f, // band A

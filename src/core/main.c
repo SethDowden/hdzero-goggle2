@@ -227,6 +227,7 @@ int main(int argc, char *argv[]) {
         ui_osd_element_pos_update();
         ht_detect_motion();
         lv_timer_handler();
+        elrs_poll_analog_retune();
         source_status_timer();
         pthread_mutex_unlock(&lvgl_mutex);
         usleep(5000);

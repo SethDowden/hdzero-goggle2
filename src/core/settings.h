@@ -124,6 +124,7 @@ typedef struct {
 
 typedef struct {
     bool enable;
+    bool analog_delay; // Hold the active analog channel for 1 s after a request.
 } setting_elrs_t;
 
 typedef enum {

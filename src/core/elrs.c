@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <log/log.h>
@@ -48,6 +49,56 @@ static int record_state;
 static uint32_t record_time = 0;
 static bool headtracking_enabled = false;
 static volatile bool cancelled = false;
+
+// Request/poll state is protected by lvgl_mutex; source/tuner changes invalidate
+// it atomically, including a menu visit that finishes before the next poll.
+static atomic_uint analog_retune_generation;
+static unsigned int analog_pending_generation;
+static bool analog_retune_pending;
+static uint8_t analog_pending_channel;
+static uint8_t analog_previous_channel;
+static uint64_t analog_received_ms;
+
+static uint64_t analog_monotonic_ms(void) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+        return 0;
+    return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+void elrs_cancel_analog_retune(void) {
+    atomic_fetch_add(&analog_retune_generation, 1);
+}
+
+static bool analog_live_initialized(void) {
+    return GOGGLE_VER_2 && g_source_info.source == SOURCE_ANALOG &&
+           g_setting.source.analog_module == SETTING_SOURCES_ANALOG_MODULE_INTERNAL &&
+           g_init_done == 1 && g_app_state == APP_STATE_VIDEO &&
+           g_hw_stat.source_mode == SOURCE_MODE_AV && g_hw_stat.av_chid == 1;
+}
+
+void elrs_poll_analog_retune(void) {
+    if (!analog_retune_pending)
+        return;
+    if (!g_setting.elrs.enable || !g_setting.elrs.analog_delay ||
+        !analog_live_initialized() ||
+        analog_pending_generation != atomic_load(&analog_retune_generation) ||
+        g_setting.source.analog_channel != analog_previous_channel) {
+        analog_retune_pending = false;
+        return;
+    }
+
+    uint64_t now = analog_monotonic_ms();
+    if (now < analog_received_ms || now - analog_received_ms < 1000)
+        return;
+
+    analog_retune_pending = false;
+    g_setting.source.analog_channel = analog_pending_channel + 1;
+    LOGI("ELRS analog delay: tune ch=%u at %llu ms, %llu ms after receipt",
+         analog_pending_channel, (unsigned long long)now,
+         (unsigned long long)(now - analog_received_ms));
+    RTC6715_SetCH(analog_pending_channel);
+}
 
 uint16_t elrs_osd[HD_VMAX][HD_HMAX];
 static uint16_t elrs_osd_overlay[HD_VMAX][HD_HMAX];
@@ -247,15 +298,46 @@ static void elrs_set_analog_channel(uint8_t chan) {
     if (chan >= ANALOG_CHANNEL_NUM)
         return;
 
+    const uint64_t received_ms = analog_monotonic_ms();
+
     // Serialize the state check and retune with manual tuning/source changes.
     pthread_mutex_lock(&lvgl_mutex);
     if (GOGGLE_VER_2 && g_source_info.source == SOURCE_ANALOG &&
         g_setting.source.analog_module == SETTING_SOURCES_ANALOG_MODULE_INTERNAL) {
         // Source_AV() sets these hardware fields after configuring analog video.
         // The selected source alone can still refer to analog while in a menu.
-        bool initialized = g_init_done == 1 && g_app_state == APP_STATE_VIDEO &&
-                           g_hw_stat.source_mode == SOURCE_MODE_AV && g_hw_stat.av_chid == 1;
+        bool initialized = analog_live_initialized();
+        if (g_setting.elrs.analog_delay && initialized) {
+            if (analog_pending_generation != atomic_load(&analog_retune_generation) ||
+                g_setting.source.analog_channel != analog_previous_channel)
+                analog_retune_pending = false;
+
+            if (!g_setting.elrs.enable || received_ms == 0) {
+                analog_retune_pending = false;
+            } else if (g_setting.source.analog_channel == chan + 1) {
+                // Returning to the active channel cancels the pending change.
+                if (analog_retune_pending)
+                    beep();
+                analog_retune_pending = false;
+            } else if (!analog_retune_pending || analog_pending_channel != chan) {
+                // Repeated Backpack SETs keep the first deadline and beep once.
+                analog_retune_pending = true;
+                analog_pending_channel = chan;
+                analog_previous_channel = g_setting.source.analog_channel;
+                analog_pending_generation = atomic_load(&analog_retune_generation);
+                analog_received_ms = received_ms;
+                beep();
+                LOGI("ELRS analog delay: received ch=%u at %llu ms; holding ch=%u for 1000 ms",
+                     chan, (unsigned long long)received_ms, analog_previous_channel - 1);
+            }
+            pthread_mutex_unlock(&lvgl_mutex);
+            return;
+        }
+
+        analog_retune_pending = false;
         if (g_setting.source.analog_channel != chan + 1 || !initialized) {
+            if (g_setting.elrs.analog_delay)
+                beep();
             g_setting.source.analog_channel = chan + 1;
             if (initialized) {
                 // Keep the video pipeline and DVR running during a live retune.
@@ -266,6 +348,8 @@ static void elrs_set_analog_channel(uint8_t chan) {
                 app_state_push(APP_STATE_VIDEO);
             }
         }
+    } else {
+        analog_retune_pending = false;
     }
     pthread_mutex_unlock(&lvgl_mutex);
 }
@@ -274,12 +358,14 @@ void msp_process_packet() {
     if (packet.type == MSP_PACKET_COMMAND) {
         switch (packet.function) {
         case MSP_GET_BAND_CHAN: {
-            uint8_t chan;
+            uint8_t chan = 0;
+            pthread_mutex_lock(&lvgl_mutex);
             if (g_source_info.source == SOURCE_HDZERO) {
                 chan = hdz_ch2index(g_setting.source.hdzero_band, g_setting.scan.channel);
             } else if (g_source_info.source == SOURCE_ANALOG && g_setting.source.analog_module == SETTING_SOURCES_ANALOG_MODULE_INTERNAL) {
                 chan = g_setting.source.analog_channel - 1;
             }
+            pthread_mutex_unlock(&lvgl_mutex);
             msp_send_packet(MSP_GET_BAND_CHAN, MSP_PACKET_RESPONSE, 1, &chan);
         } break;
         case MSP_SET_BAND_CHAN: {
@@ -304,7 +390,8 @@ void msp_process_packet() {
         case MSP_GET_FREQ: {
             uint8_t ch;
             uint16_t freq;
-            uint8_t buf[2];
+            uint8_t buf[2] = {0};
+            pthread_mutex_lock(&lvgl_mutex);
             if (g_source_info.source == SOURCE_HDZERO) {
                 ch = hdz_index2ch(g_setting.scan.channel & 0xF);
                 freq = freq_table[ch - 1];
@@ -318,6 +405,7 @@ void msp_process_packet() {
                     buf[1] = freq >> 8;
                 }
             }
+            pthread_mutex_unlock(&lvgl_mutex);
             msp_send_packet(MSP_GET_FREQ, MSP_PACKET_RESPONSE, sizeof(buf), buf);
         } break;
         case MSP_SET_FREQ: {

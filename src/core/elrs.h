@@ -78,6 +78,10 @@ void elrs_init();
 bool elrs_headtracking_enabled();
 void elrs_clear_osd();
 
+// Poll from the main loop with lvgl_mutex held. Cancellation is thread-safe.
+void elrs_poll_analog_retune(void);
+void elrs_cancel_analog_retune(void);
+
 void msp_send_packet(uint16_t function, mspPacketType_e type, uint16_t payload_size, uint8_t *payload);
 bool msp_read_resposne(uint16_t function, uint16_t *payload_size, uint8_t *payload);
 mspAwaitResposne_e msp_await_resposne(uint16_t function, uint16_t payload_size, uint8_t *payload, uint32_t timeout_ms);

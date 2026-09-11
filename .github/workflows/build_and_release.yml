@@ -11,6 +11,9 @@ jobs:
         with:
           submodules: true
 
+      - name: Test analog retuning
+        run: sh tests/run_elrs_retune_test.sh
+
       - name: Build Firmware
         run: |
           bash setup.sh

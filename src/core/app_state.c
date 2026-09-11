@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "core/dvr.h"
+#include "core/elrs.h"
 #include "core/input_device.h"
 #include "core/msp_displayport.h"
 #include "core/osd.h"
@@ -27,6 +28,8 @@ extern int valid_channel_tb[10];
 extern int user_select_index;
 
 void app_state_push(app_state_t state) {
+    if (state != APP_STATE_VIDEO)
+        elrs_cancel_analog_retune();
     g_app_state = state;
 }
 
